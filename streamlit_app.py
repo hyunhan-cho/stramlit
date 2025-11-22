@@ -188,7 +188,7 @@ def main():
     st.markdown("---")
 
     if factor_col is None:
-        st.subheader("그룹별 요인 평균 비교")
+        st.subheader("그룹별 요인 분포 비교")
 
         plot_df = group_df[[group_col] + factor_cols].copy()
         long_df = plot_df.melt(
@@ -199,34 +199,109 @@ def main():
         )
         long_df["요인"] = long_df["요인"].map(factor_labels)
 
-        mean_table = (
-            long_df.pivot_table(
-                index=group_col,
-                columns="요인",
-                values="점수",
-                aggfunc="mean",
+        # 통계 요약 테이블
+        st.markdown("#### 📊 그룹별 요약 통계")
+        summary_stats = []
+        for factor in factor_cols:
+            factor_name = factor_labels[factor]
+            for group_name in plot_df[group_col].dropna().unique():
+                group_data = plot_df[plot_df[group_col] == group_name][factor].dropna()
+                summary_stats.append({
+                    "요인": factor_name,
+                    "그룹": group_name,
+                    "평균": round(group_data.mean(), 2),
+                    "표준편차": round(group_data.std(), 2),
+                    "중앙값": round(group_data.median(), 2),
+                    "최소값": round(group_data.min(), 2),
+                    "최대값": round(group_data.max(), 2),
+                    "표본수": len(group_data),
+                })
+        
+        summary_df = pd.DataFrame(summary_stats)
+        st.dataframe(summary_df, use_container_width=True, height=250)
+
+        # 탭으로 여러 시각화 제공
+        tab1, tab2, tab3 = st.tabs(["📦 박스플롯", "🎻 바이올린 플롯", "📊 평균 비교"])
+        
+        with tab1:
+            st.markdown("##### 그룹별 요인 점수 분포 (박스플롯)")
+            fig_box = px.box(
+                long_df,
+                x="요인",
+                y="점수",
+                color=group_col,
+                title=f"{group_label}별 요인 점수 분포",
+                points="outliers",
             )
-            .round(2)
-            .sort_index()
-        )
-
-        st.write("**그룹별 요인 평균 (1~5점 척도)**")
-        st.dataframe(mean_table, use_container_width=False)
-
-        fig_bar = px.bar(
-            long_df,
-            x="요인",
-            y="점수",
-            color=group_col,
-            barmode="group",
-            title=f"{group_label}별 요인 평균 비교",
-            range_y=[1, 5],
-        )
-        fig_bar.update_layout(
-            xaxis_title="요인",
-            yaxis_title="평균 점수 (1~5점)",
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+            fig_box.update_layout(
+                xaxis_title="요인",
+                yaxis_title="점수 (1~5점)",
+                height=500,
+                showlegend=True,
+            )
+            st.plotly_chart(fig_box, use_container_width=True)
+        
+        with tab2:
+            st.markdown("##### 그룹별 요인 점수 분포 (바이올린 플롯)")
+            fig_violin = px.violin(
+                long_df,
+                x="요인",
+                y="점수",
+                color=group_col,
+                box=True,
+                points="all",
+                title=f"{group_label}별 요인 점수 분포 (바이올린)",
+            )
+            fig_violin.update_layout(
+                xaxis_title="요인",
+                yaxis_title="점수 (1~5점)",
+                height=500,
+                showlegend=True,
+            )
+            st.plotly_chart(fig_violin, use_container_width=True)
+        
+        with tab3:
+            st.markdown("##### 그룹별 요인 평균 비교 (막대 그래프)")
+            fig_bar = px.bar(
+                long_df,
+                x="요인",
+                y="점수",
+                color=group_col,
+                barmode="group",
+                title=f"{group_label}별 요인 평균 비교",
+            )
+            fig_bar.update_layout(
+                xaxis_title="요인",
+                yaxis_title="평균 점수 (1~5점)",
+                height=500,
+                showlegend=True,
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # ANOVA 결과 요약
+        st.markdown("#### 📈 통계 검정 결과 (ANOVA)")
+        anova_results = []
+        for factor in factor_cols:
+            factor_name = factor_labels[factor]
+            group_values = [
+                plot_df[plot_df[group_col] == g][factor].dropna().values
+                for g in plot_df[group_col].dropna().unique()
+            ]
+            valid_groups = [g for g in group_values if len(g) >= 2]
+            
+            if len(valid_groups) >= 2:
+                f_val, p_val = f_oneway(*valid_groups)
+                significance = "✅ 유의" if p_val < 0.05 else "❌ 비유의"
+                anova_results.append({
+                    "요인": factor_name,
+                    "F 통계량": round(f_val, 4),
+                    "P-value": round(p_val, 4),
+                    "유의성 (α=0.05)": significance,
+                })
+        
+        if anova_results:
+            anova_df = pd.DataFrame(anova_results)
+            st.dataframe(anova_df, use_container_width=True)
     else:
         st.subheader(f"단일 요인 분포: **{factor_choice_label}**")
 
