@@ -3,6 +3,10 @@ import numpy as np
 from scipy.stats import f_oneway
 import plotly.express as px
 import streamlit as st
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.preprocessing import LabelEncoder
 
 
 CSV_PATH = "exp - 설문지 응답 시트1 (1).csv"
@@ -386,6 +390,125 @@ def main():
         title="요인 간 상관관계 히트맵",
     )
     st.plotly_chart(fig_corr, use_container_width=True)
+
+    # --- 머신러닝 예측 섹션 ---
+    st.markdown("---")
+    st.header("🤖 AI 구매 의도 예측 시뮬레이션")
+    st.markdown("머신러닝(Random Forest)을 사용하여 사용자 특성에 따른 **구매 의도**를 예측합니다.")
+
+    # ML 데이터 준비
+    ml_df = df.copy()
+    
+    # 범주형 변수 인코딩
+    le_gender = LabelEncoder()
+    # 결측치 처리 (최빈값 또는 '기타')
+    ml_df[gender_col] = ml_df[gender_col].fillna("기타")
+    ml_df["Gender_Code"] = le_gender.fit_transform(ml_df[gender_col].astype(str))
+    
+    # 입력 변수(X)와 타겟 변수(y) 설정
+    # 나이, 성별, SNS 이용량, 충동구매 성향, 사회적 비교, 쇼핑 후회/태도, 광고 인식/신뢰 -> 구매 의도 예측
+    feature_cols = [
+        "SNS_Freq_Numeric", "SNS_Time_Numeric", 
+        "충동구매 성향_Mean", "사회적 비교_Mean", 
+        "쇼핑 후회/태도_Mean", "광고 인식/신뢰_Mean"
+    ]
+    # 나이 컬럼이 숫자형인지 확인하고 추가
+    if age_col in ml_df.columns:
+        ml_df[age_col] = ml_df[age_col].fillna(ml_df[age_col].median()) # 결측치 중앙값 대체
+        feature_cols.insert(0, age_col)
+    
+    feature_cols.append("Gender_Code")
+    
+    target_col = "구매 의도_Mean"
+    
+    # 결측치 제거
+    ml_data = ml_df[feature_cols + [target_col]].dropna()
+    
+    if len(ml_data) > 10:
+        X = ml_data[feature_cols]
+        y = ml_data[target_col]
+        
+        # 모델 학습
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+        
+        # 성능 평가
+        y_pred = model.predict(X_test)
+        r2 = r2_score(y_test, y_pred)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.success(f"**모델 예측 정확도 (R² Score): {r2:.2f}**")
+            st.caption("1.0에 가까울수록 예측이 정확합니다.")
+            
+            # 변수 중요도 시각화
+            importances = model.feature_importances_
+            feature_names_display = [
+                c.replace("_Mean", "").replace("_Numeric", "") 
+                for c in feature_cols
+            ]
+            # 성별, 나이 이름 다듬기
+            feature_names_display = [
+                "성별" if "Gender" in f else 
+                "나이" if "연령" in f or "1-2" in f else f 
+                for f in feature_names_display
+            ]
+            
+            imp_df = pd.DataFrame({
+                "Feature": feature_names_display,
+                "Importance": importances
+            }).sort_values("Importance", ascending=True)
+            
+            fig_imp = px.bar(
+                imp_df, 
+                x="Importance", 
+                y="Feature", 
+                orientation='h',
+                title="구매 의도에 영향을 미치는 요인 (중요도)",
+                color="Importance",
+                color_continuous_scale="Viridis"
+            )
+            st.plotly_chart(fig_imp, use_container_width=True)
+            
+        with c2:
+            st.subheader("🎛️ 내 구매 의도 예측해보기")
+            st.markdown("아래 슬라이더를 조절하여 가상의 사용자 프로필을 만들어보세요.")
+            
+            # 사용자 입력 받기
+            input_data = {}
+            
+            if age_col in feature_cols:
+                input_data[age_col] = st.slider("나이", 10, 60, 24)
+            
+            gender_opt = st.radio("성별", le_gender.classes_, horizontal=True)
+            input_data["Gender_Code"] = le_gender.transform([gender_opt])[0]
+            
+            input_data["SNS_Freq_Numeric"] = st.slider("SNS 접속 빈도 (1:적음 ~ 5:많음)", 1.0, 5.0, 3.0, 0.5)
+            input_data["SNS_Time_Numeric"] = st.slider("SNS 이용 시간 (시간)", 0.0, 6.0, 2.0, 0.5)
+            
+            input_data["충동구매 성향_Mean"] = st.slider("충동구매 성향 점수", 1.0, 5.0, 3.0, 0.1)
+            input_data["사회적 비교_Mean"] = st.slider("사회적 비교 점수", 1.0, 5.0, 3.0, 0.1)
+            input_data["쇼핑 후회/태도_Mean"] = st.slider("쇼핑 후회/태도 점수", 1.0, 5.0, 3.0, 0.1)
+            input_data["광고 인식/신뢰_Mean"] = st.slider("광고 인식/신뢰 점수", 1.0, 5.0, 3.0, 0.1)
+            
+            # 예측 수행
+            input_df = pd.DataFrame([input_data], columns=feature_cols)
+            prediction = model.predict(input_df)[0]
+            
+            st.divider()
+            st.markdown(f"### 🔮 예측된 구매 의도 점수: **{prediction:.2f} / 5.0**")
+            
+            if prediction >= 4.0:
+                st.balloons()
+                st.success("구매 가능성이 매우 높습니다! 🚀")
+            elif prediction >= 3.0:
+                st.info("구매를 고려할 가능성이 있습니다. 🤔")
+            else:
+                st.warning("구매 가능성이 낮습니다. 📉")
+                
+    else:
+        st.warning("머신러닝을 수행하기에 데이터가 충분하지 않습니다.")
 
 
 if __name__ == "__main__":
