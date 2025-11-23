@@ -195,6 +195,13 @@ def main():
     else:
         group_df = df.copy()
 
+    # 그룹 순서 정의 (정렬을 위해)
+    category_orders = {}
+    if "Age_Group_3" in group_col:
+        category_orders[group_col] = ["20대 초반", "20대 중후반", "30대 이상"]
+    elif "Age_Group_2" in group_col:
+        category_orders[group_col] = ["20대", "30대 이상"]
+
     st.subheader("표본 개요")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -258,6 +265,7 @@ def main():
                 color=group_col,
                 title=f"{group_label}별 요인 점수 분포",
                 points="outliers",
+                category_orders=category_orders,
             )
             fig_box.update_layout(
                 xaxis_title="요인",
@@ -277,6 +285,7 @@ def main():
                 box=True,
                 points="all",
                 title=f"{group_label}별 요인 점수 분포 (바이올린)",
+                category_orders=category_orders,
             )
             fig_violin.update_layout(
                 xaxis_title="요인",
@@ -295,6 +304,7 @@ def main():
                 color=group_col,
                 barmode="group",
                 title=f"{group_label}별 요인 평균 비교",
+                category_orders=category_orders,
             )
             fig_bar.update_layout(
                 xaxis_title="요인",
@@ -341,6 +351,7 @@ def main():
                 y=factor_col,
                 points="all",
                 title=f"{group_label}별 '{factor_choice_label}' 분포 (Boxplot)",
+                category_orders=category_orders,
             )
             fig_box.update_layout(
                 xaxis_title=group_label,
