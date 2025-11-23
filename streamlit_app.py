@@ -178,13 +178,24 @@ def main():
         valid_age_count = df["Age_Group"].notna().sum()
         st.metric("유효 연령대 표본", valid_age_count)
 
+    # SNS 이용률 계산 (2-1 문항)
+    sns_usage_col = [c for c in df.columns if "[2-1]" in c]
+    if sns_usage_col:
+        col_name = sns_usage_col[0]
+        # "예"라고 응답한 비율 계산
+        usage_rate = (df[col_name] == "예").mean() * 100
+        
+        # 별도 컬럼으로 표시하거나 기존 컬럼 옆에 추가
+        st.metric("SNS 이용률 (인스타그램)", f"{usage_rate:.1f}%")
+
+
     st.markdown("### 📋 연령대별 표본 분포")
     age_counts = df["Age_Group"].value_counts().sort_index()
     
     # 표본 분포를 더 크게 표시
     age_df = age_counts.to_frame("표본 수").reset_index()
     age_df.columns = ["연령대", "표본 수"]
-    st.dataframe(age_df, width="stretch", hide_index=True, height=150)
+    st.dataframe(age_df, use_container_width=True, hide_index=True, height=150)
 
     # --- [1] 연령대별 6개 요인 평균 ---
     st.markdown("---")
@@ -199,14 +210,14 @@ def main():
     try:
         st.dataframe(
             group_means_display.style.format("{:.2f}").background_gradient(cmap="RdYlGn", axis=1),
-            width="stretch",
+            use_container_width=True,
             height=200
         )
     except ImportError:
         # matplotlib 없으면 plain 표 출력
         st.dataframe(
             group_means_display.style.format("{:.2f}"),
-            width="stretch",
+            use_container_width=True,
             height=200
         )
 
@@ -237,7 +248,7 @@ def main():
         yaxis=dict(tickfont=dict(size=14)),
         legend=dict(font=dict(size=14)),
     )
-    st.plotly_chart(fig_bar, width="stretch")
+    st.plotly_chart(fig_bar, use_container_width=True)
 
     # --- [2] 각 연령대별 상위 3개 요인 + 전체 순위 ---
     st.markdown("---")
@@ -280,14 +291,14 @@ def main():
                         subset=["평균 점수"], cmap="YlGn"
                     ),
                     hide_index=True,
-                    width="stretch",
+                    use_container_width=True,
                     height=320
                 )
             except ImportError:
                 st.dataframe(
                     rank_df.style.format({"평균 점수": "{:.2f}"}),
                     hide_index=True,
-                    width="stretch",
+                    use_container_width=True,
                     height=320
                 )
         
@@ -312,14 +323,14 @@ def main():
                     ad_means_df.style.format({"평균 광고 개수": "{:.2f}개"}).background_gradient(
                         subset=["평균 광고 개수"], cmap="Blues"
                     ),
-                    width="stretch",
+                    use_container_width=True,
                     hide_index=True,
                     height=180
                 )
             except ImportError:
                 st.dataframe(
                     ad_means_df.style.format({"평균 광고 개수": "{:.2f}개"}),
-                    width="stretch",
+                    use_container_width=True,
                     hide_index=True,
                     height=180
                 )
@@ -347,9 +358,82 @@ def main():
                 xaxis=dict(tickfont=dict(size=14)),
                 yaxis=dict(tickfont=dict(size=14)),
             )
-            st.plotly_chart(fig_ad, width="stretch")
+            st.plotly_chart(fig_ad, use_container_width=True)
     else:
         st.warning("⚠️ 광고 개수 데이터([2-6])를 찾을 수 없습니다.")
+
+    # --- [추가] 연령대별 SNS 이용 시간 ---
+    st.markdown("---")
+    st.header("⏰ [추가] 연령대별 SNS 이용 시간")
+    st.caption("하루 평균 인스타그램 이용 총시간 ([2-4] 문항)")
+
+    time_col = [c for c in df.columns if "[2-4]" in c]
+    if time_col:
+        t_col = time_col[0]
+        
+        # 시간 범위 -> 분 단위 변환 매핑
+        time_mapping = {
+            "10분 미만": 5,
+            "30분~1시간 미만": 45,
+            "1~2시간 미만": 90,
+            "2~4시간 미만": 180,
+            "4~5시간 미만": 270,
+            "5시간 이상": 330
+        }
+        
+        # 매핑 적용하여 새로운 수치형 컬럼 생성
+        df["Usage_Time_Min"] = df[t_col].map(time_mapping)
+        
+        # 연령대별 평균 계산
+        time_means = df.groupby("Age_Group")["Usage_Time_Min"].mean().round(1)
+        time_means_df = time_means.to_frame("평균 이용 시간(분)").reset_index()
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown("#### 📊 평균 시간(분) 요약")
+            try:
+                st.dataframe(
+                    time_means_df.style.format({"평균 이용 시간(분)": "{:.1f}분"}).background_gradient(
+                        subset=["평균 이용 시간(분)"], cmap="Purples"
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=180
+                )
+            except ImportError:
+                st.dataframe(
+                    time_means_df.style.format({"평균 이용 시간(분)": "{:.1f}분"}),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=180
+                )
+                
+        with col2:
+            fig_time = px.bar(
+                time_means_df,
+                x="Age_Group",
+                y="평균 이용 시간(분)",
+                title="<b>연령대별 평균 SNS 이용 시간</b>",
+                color="Age_Group",
+                category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
+                color_discrete_sequence=px.colors.qualitative.Prism,
+                text="평균 이용 시간(분)"
+            )
+            fig_time.update_traces(texttemplate='%{text:.1f}분', textposition='outside', textfont_size=16)
+            fig_time.update_layout(
+                xaxis_title="<b>연령대</b>",
+                yaxis_title="<b>평균 이용 시간 (분)</b>",
+                height=450,
+                showlegend=False,
+                font=dict(size=16),
+                title_font_size=20,
+                xaxis=dict(tickfont=dict(size=14)),
+                yaxis=dict(tickfont=dict(size=14)),
+            )
+            st.plotly_chart(fig_time, use_container_width=True)
+    else:
+        st.warning("⚠️ 이용 시간 데이터([2-4])를 찾을 수 없습니다.")
 
     # --- [4] 집단별 상관계수 ---
     st.markdown("---")
@@ -402,7 +486,7 @@ def main():
             yaxis=dict(tickfont=dict(size=14)),
         )
         fig_corr.update_traces(textfont_size=14)
-        st.plotly_chart(fig_corr, width="stretch")
+        st.plotly_chart(fig_corr, use_container_width=True)
 
     # --- [추가] 박스플롯 비교 ---
     st.markdown("---")
@@ -429,7 +513,7 @@ def main():
         height=500,
         legend_title="연령대",
     )
-    st.plotly_chart(fig_box, width="stretch")
+    st.plotly_chart(fig_box, use_container_width=True)
 
 
 if __name__ == "__main__":
