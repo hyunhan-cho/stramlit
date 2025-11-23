@@ -3,14 +3,13 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import os
 
 CSV_PATH = "exp - 설문지 응답 시트1 (2).csv"
 
 
-@st.cache_data
-def load_data(path: str):
-    df = pd.read_csv(path)
-
+def process_dataframe(df):
+    """데이터프레임을 처리하여 요인 계산"""
     # 기본 컬럼 찾기
     age_col = [c for c in df.columns if "[1-2]" in c][0]
     gender_col = [c for c in df.columns if "[1-1]" in c][0]
@@ -46,42 +45,28 @@ def load_data(path: str):
             found.extend(matched)
         return found
 
-    # SNS 이용률 매핑
-    sns_freq_col = find_cols(["2-3"])[0]
-    sns_time_col = find_cols(["2-4"])[0]
+    # 역문항 처리 (알미사.ipynb와 동일)
+    scale_max = 5
+    reverse_items = ["3-6", "3-12"]
 
-    sns_freq_mapping = {
-        "필요시 검색": 1,
-        "가끔씩 (2~5회)": 2,
-        "수시로 접속 (10회 이상)": 3,
-        "거의 습관적으로 자주 (30회 이상)": 4,
-        "하루 종일 접속해놓고 있다": 5,
-    }
+    for item in reverse_items:
+        col_name = find_cols([item])
+        if col_name:
+            c = col_name[0]
+            if f"{c}_rev" not in df.columns:
+                df[f"{c}_rev"] = (scale_max + 1) - df[c]
 
-    sns_time_mapping = {
-        "10분 미만": 0.5,
-        "30분~1시간 미만": 0.75,
-        "1~2시간 미만": 1.5,
-        "2~4시간 미만": 3,
-        "4~5시간 미만": 4.5,
-        "5시간 이상": 6,
-    }
-
-    df["SNS_Freq_Numeric"] = df[sns_freq_col].map(sns_freq_mapping)
-    df["SNS_Time_Numeric"] = df[sns_time_col].map(sns_time_mapping)
-
-    # 6개 요인 정의 (논문 분석과 동일)
+    # 7개 요인 정의 (알미사.ipynb와 동일)
     sector_map = {
-        "SNS 이용률": ["SNS_Freq_Numeric", "SNS_Time_Numeric"],
-        "충동구매 성향": find_cols(["3-1", "3-2", "3-3", "3-4", "3-5", "3-28", "3-29"]),
-        "사회적 비교": find_cols(["3-7", "3-8", "3-9", "3-10", "3-11"]),
-        "쇼핑 후회/태도": find_cols(
-            ["3-13", "3-14", "3-15", "3-16", "3-25", "3-26", "3-27"]
-        ),
-        "광고 인식/신뢰": find_cols(
-            [f"3-{i}" for i in range(17, 25)] + [f"4-{i}" for i in range(1, 13)]
-        ),
-        "구매 의도": find_cols([f"4-{i}" for i in range(13, 28)]),
+        "충동구매 성향": find_cols(["3-1", "3-2", "3-3", "3-4", "3-5"])
+        + ([f"{find_cols(['3-6'])[0]}_rev"] if find_cols(["3-6"]) else []),
+        "사회적 비교": find_cols(["3-7", "3-8", "3-9", "3-10", "3-11"])
+        + ([f"{find_cols(['3-12'])[0]}_rev"] if find_cols(["3-12"]) else []),
+        "가격 민감도": find_cols(["3-13", "3-14", "3-15", "3-16", "3-17"]),
+        "플랫폼 편의성": find_cols(["3-18", "3-19", "3-20", "3-21"]),
+        "서비스 신뢰/후회": find_cols(["3-22", "3-23", "3-24", "3-25", "3-26", "3-27"]),
+        "예산/자기통제": find_cols(["3-28", "3-29", "3-30", "3-31", "3-32"]),
+        "메타광고 종합 반응": find_cols([f"4-{i}" for i in range(1, 28)]),
     }
 
     factor_to_col = {}
@@ -101,25 +86,62 @@ def load_data(path: str):
     return df, factor_to_col, age_col, gender_col, education_col
 
 
+@st.cache_data
+def load_data(path: str):
+    """파일 경로에서 데이터 로딩"""
+    # 현재 스크립트 위치 기준으로 경로 설정
+    if not os.path.isabs(path):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, path)
+    
+    df = pd.read_csv(path)
+    return process_dataframe(df)
+
+
+def load_data_from_upload(uploaded_file):
+    """업로드된 파일에서 데이터 로딩"""
+    df = pd.read_csv(uploaded_file)
+    return process_dataframe(df)
+
+
 def main():
     st.set_page_config(page_title="논문 분석 대시보드", layout="wide")
 
     st.title("📊 소셜커머스 설문 분석 대시보드")
     st.markdown(
         """
-        **연령대별 6개 요인 비교 분석** (SNS 이용률 제외)
-        - 충동구매 성향 / 사회적 비교 / 쇼핑 후회·태도 / 광고 인식·신뢰 / 구매 의도
+        ### 연령대별 7개 요인 비교 분석
+        - 충동구매 성향 / 사회적 비교 / 가격 민감도 / 플랫폼 편의성 / 서비스 신뢰·후회 / 예산·자기통제 / **메타광고 종합 반응**
         """
     )
 
     try:
         df, factor_to_col, age_col, gender_col, education_col = load_data(CSV_PATH)
-    except FileNotFoundError:
-        st.error(f"CSV 파일을 찾을 수 없습니다: `{CSV_PATH}`")
+    except FileNotFoundError as e:
+        st.error(f"❌ CSV 파일을 찾을 수 없습니다: `{CSV_PATH}`")
+        st.info("현재 작업 디렉토리: " + os.getcwd())
+        st.info("스크립트 위치: " + os.path.dirname(os.path.abspath(__file__)))
+        
+        # 파일 업로드 옵션 제공
+        st.markdown("---")
+        st.subheader("📁 CSV 파일 직접 업로드")
+        uploaded_file = st.file_uploader("설문 데이터 CSV 파일을 업로드하세요", type=["csv"])
+        
+        if uploaded_file is not None:
+            try:
+                df, factor_to_col, age_col, gender_col, education_col = load_data_from_upload(uploaded_file)
+                st.success("✅ 파일 업로드 성공!")
+            except Exception as upload_error:
+                st.error(f"파일 처리 중 오류: {upload_error}")
+                st.stop()
+        else:
+            st.stop()
+    except Exception as e:
+        st.error(f"데이터 로딩 중 오류 발생: {e}")
         st.stop()
 
-    # SNS 이용률 제외한 5개 요인만 분석 대상
-    analysis_factors = [name for name in factor_to_col.keys() if name != "SNS 이용률"]
+    # 전체 6개 요인 (SNS 이용률 포함)
+    analysis_factors = list(factor_to_col.keys())
     analysis_cols = [factor_to_col[name] for name in analysis_factors]
 
     # --- 사이드바 ---
@@ -151,26 +173,45 @@ def main():
     with col1:
         st.metric("전체 표본 수", len(df))
     with col2:
-        st.metric("분석 요인 수 (SNS 이용률 제외)", len(analysis_factors))
+        st.metric("분석 요인 수", len(analysis_factors))
     with col3:
         valid_age_count = df["Age_Group"].notna().sum()
         st.metric("유효 연령대 표본", valid_age_count)
 
-    st.markdown("##### 연령대별 표본 분포")
+    st.markdown("### 📋 연령대별 표본 분포")
     age_counts = df["Age_Group"].value_counts().sort_index()
-    st.dataframe(age_counts.to_frame("표본 수"), use_container_width=False)
+    
+    # 표본 분포를 더 크게 표시
+    age_df = age_counts.to_frame("표본 수").reset_index()
+    age_df.columns = ["연령대", "표본 수"]
+    st.dataframe(age_df, width="stretch", hide_index=True, height=150)
 
     # --- [1] 연령대별 6개 요인 평균 ---
     st.markdown("---")
-    st.header("📊 [1] 연령대별 요인 평균 (SNS 이용률 제외)")
+    st.header("📊 [1] 연령대별 요인 평균")
 
     group_means = df.groupby("Age_Group")[analysis_cols].mean().round(2)
     group_means_display = group_means.copy()
     group_means_display.columns = [c.replace("_Mean", "") for c in group_means_display.columns]
 
-    st.dataframe(group_means_display, use_container_width=True)
+    # 표를 더 크고 읽기 쉽게
+    st.markdown("#### 📈 평균 점수 요약표")
+    try:
+        st.dataframe(
+            group_means_display.style.format("{:.2f}").background_gradient(cmap="RdYlGn", axis=1),
+            width="stretch",
+            height=200
+        )
+    except ImportError:
+        # matplotlib 없으면 plain 표 출력
+        st.dataframe(
+            group_means_display.style.format("{:.2f}"),
+            width="stretch",
+            height=200
+        )
 
-    # 막대 그래프로 시각화
+    # 막대 그래프로 시각화 (크고 명확하게)
+    st.markdown("#### 📊 시각화: 연령대별 요인 비교")
     long_df = group_means_display.reset_index().melt(
         id_vars="Age_Group", var_name="요인", value_name="평균 점수"
     )
@@ -181,21 +222,26 @@ def main():
         y="평균 점수",
         color="Age_Group",
         barmode="group",
-        title="연령대별 요인 평균 비교",
+        title="<b>연령대별 요인 평균 비교</b>",
         category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
         color_discrete_sequence=px.colors.qualitative.Set2,
     )
     fig_bar.update_layout(
-        xaxis_title="요인",
-        yaxis_title="평균 점수 (1~5점)",
-        height=450,
-        legend_title="연령대",
+        xaxis_title="<b>요인</b>",
+        yaxis_title="<b>평균 점수 (1~5점)</b>",
+        height=550,
+        legend_title="<b>연령대</b>",
+        font=dict(size=16),
+        title_font_size=20,
+        xaxis=dict(tickfont=dict(size=14)),
+        yaxis=dict(tickfont=dict(size=14)),
+        legend=dict(font=dict(size=14)),
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width="stretch")
 
     # --- [2] 각 연령대별 상위 3개 요인 + 전체 순위 ---
     st.markdown("---")
-    st.header("🏆 [2] 각 연령대별 상위 3개 요인 (SNS 이용률 제외)")
+    st.header("🏆 [2] 각 연령대별 상위 3개 요인")
 
     for group in ["20대 초반", "20대 중후반", "30대 이상"]:
         if group not in group_means.index:
@@ -208,16 +254,19 @@ def main():
         sorted_row = renamed.sort_values(ascending=False)
         top3 = sorted_row.head(3)
 
-        st.subheader(f"■ {group}")
+        st.markdown(f"### 📍 {group}")
         col1, col2 = st.columns([1, 2])
 
         with col1:
-            st.markdown("**상위 3개 요인:**")
+            st.markdown("#### 🥇 상위 3개 요인")
             for i, (fname, val) in enumerate(top3.items(), start=1):
-                st.markdown(f"**{i}.** {fname}: `{val:.2f}`")
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+                st.markdown(f"### {medal} **{i}위. {fname}**")
+                st.markdown(f"#### `{val:.2f}점`")
+                st.markdown("")
 
         with col2:
-            st.markdown("**전체 요인 순위 (내림차순):**")
+            st.markdown("#### 📊 전체 요인 순위 (내림차순)")
             rank_df = pd.DataFrame(
                 {
                     "순위": range(1, len(sorted_row) + 1),
@@ -225,35 +274,80 @@ def main():
                     "평균 점수": sorted_row.values,
                 }
             )
-            st.dataframe(rank_df, hide_index=True, use_container_width=True)
+            try:
+                st.dataframe(
+                    rank_df.style.format({"평균 점수": "{:.2f}"}).background_gradient(
+                        subset=["평균 점수"], cmap="YlGn"
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                    height=320
+                )
+            except ImportError:
+                st.dataframe(
+                    rank_df.style.format({"평균 점수": "{:.2f}"}),
+                    hide_index=True,
+                    width="stretch",
+                    height=320
+                )
+        
+        st.markdown("---")
 
     # --- [3] 연령대별 광고 개수 평균 ---
     st.markdown("---")
-    st.header("📺 [3] 연령대별 광고 개수 평균 ([2-6] 문항)")
+    st.header("📺 [3] 연령대별 광고 개수 평균")
+    st.caption("릴스 30개를 볼 때 노출되는 메타 광고 개수 ([2-6] 문항)")
 
     if "Ad_Count_Numeric" in df.columns:
         ad_means = df.groupby("Age_Group")["Ad_Count_Numeric"].mean().round(2)
-        ad_means_df = ad_means.to_frame("평균 광고 개수")
-        st.dataframe(ad_means_df, use_container_width=False)
+        ad_means_df = ad_means.to_frame("평균 광고 개수").reset_index()
+        ad_means_df.columns = ["연령대", "평균 광고 개수"]
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown("#### 📊 평균값 요약")
+            try:
+                st.dataframe(
+                    ad_means_df.style.format({"평균 광고 개수": "{:.2f}개"}).background_gradient(
+                        subset=["평균 광고 개수"], cmap="Blues"
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                    height=180
+                )
+            except ImportError:
+                st.dataframe(
+                    ad_means_df.style.format({"평균 광고 개수": "{:.2f}개"}),
+                    width="stretch",
+                    hide_index=True,
+                    height=180
+                )
 
-        # 막대 그래프
-        fig_ad = px.bar(
-            ad_means.reset_index(),
-            x="Age_Group",
-            y="Ad_Count_Numeric",
-            title="연령대별 평균 광고 개수",
-            labels={"Age_Group": "연령대", "Ad_Count_Numeric": "평균 광고 개수"},
-            color="Age_Group",
-            category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
-            color_discrete_sequence=px.colors.qualitative.Pastel,
-        )
-        fig_ad.update_layout(
-            xaxis_title="연령대",
-            yaxis_title="평균 광고 개수 (개)",
-            height=400,
-            showlegend=False,
-        )
-        st.plotly_chart(fig_ad, use_container_width=True)
+        with col2:
+            # 막대 그래프 (크고 명확하게)
+            fig_ad = px.bar(
+                ad_means_df,
+                x="연령대",
+                y="평균 광고 개수",
+                title="<b>연령대별 평균 광고 개수</b>",
+                color="연령대",
+                category_orders={"연령대": ["20대 초반", "20대 중후반", "30대 이상"]},
+                color_discrete_sequence=px.colors.qualitative.Pastel,
+                text="평균 광고 개수",
+            )
+            fig_ad.update_traces(texttemplate='%{text:.2f}개', textposition='outside', textfont_size=16)
+            fig_ad.update_layout(
+                xaxis_title="<b>연령대</b>",
+                yaxis_title="<b>평균 광고 개수 (개)</b>",
+                height=450,
+                showlegend=False,
+                font=dict(size=16),
+                title_font_size=20,
+                xaxis=dict(tickfont=dict(size=14)),
+                yaxis=dict(tickfont=dict(size=14)),
+            )
+            st.plotly_chart(fig_ad, width="stretch")
     else:
         st.warning("⚠️ 광고 개수 데이터([2-6])를 찾을 수 없습니다.")
 
@@ -269,7 +363,9 @@ def main():
     }
 
     corr_choice = st.selectbox(
-        "상관계수를 계산할 집단 선택", options=list(corr_group_options.keys()), index=0
+        "📌 상관계수를 계산할 집단 선택",
+        options=list(corr_group_options.keys()),
+        index=0,
     )
     corr_filter = corr_group_options[corr_choice]
 
@@ -280,10 +376,10 @@ def main():
         corr_df = df[df["Age_Group"] == corr_filter]
         subtitle = corr_filter
 
-    st.caption(f"선택된 표본 수: **{len(corr_df)}명**")
+    st.info(f"📊 선택된 표본 수: **{len(corr_df)}명**")
 
     if len(corr_df) < 5:
-        st.warning("상관계수를 계산하기에 표본 수가 너무 적습니다 (5명 미만).")
+        st.warning("⚠️ 상관계수를 계산하기에 표본 수가 너무 적습니다 (5명 미만).")
     else:
         corr = corr_df[analysis_cols].corr()
         # 요인명 간소화
@@ -296,10 +392,17 @@ def main():
             zmin=-1,
             zmax=1,
             color_continuous_scale="RdBu_r",
-            title=f"요인 간 상관계수 히트맵 ({subtitle})",
+            title=f"<b>요인 간 상관계수 히트맵 ({subtitle})</b>",
         )
-        fig_corr.update_layout(height=500)
-        st.plotly_chart(fig_corr, use_container_width=True)
+        fig_corr.update_layout(
+            height=600,
+            font=dict(size=16),
+            title_font_size=20,
+            xaxis=dict(tickfont=dict(size=14)),
+            yaxis=dict(tickfont=dict(size=14)),
+        )
+        fig_corr.update_traces(textfont_size=14)
+        st.plotly_chart(fig_corr, width="stretch")
 
     # --- [추가] 박스플롯 비교 ---
     st.markdown("---")
@@ -326,7 +429,7 @@ def main():
         height=500,
         legend_title="연령대",
     )
-    st.plotly_chart(fig_box, use_container_width=True)
+    st.plotly_chart(fig_box, width="stretch")
 
 
 if __name__ == "__main__":
