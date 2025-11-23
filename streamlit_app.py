@@ -305,7 +305,6 @@ def main():
         st.markdown("---")
 
     # --- [3] 연령대별 광고 개수 평균 ---
-    st.markdown("---")
     st.header("📺 [3] 연령대별 광고 개수 평균")
     st.caption("릴스 30개를 볼 때 노출되는 메타 광고 개수 ([2-6] 문항)")
 
@@ -351,7 +350,7 @@ def main():
             fig_ad.update_layout(
                 xaxis_title="<b>연령대</b>",
                 yaxis_title="<b>평균 광고 개수 (개)</b>",
-                height=450,
+                height=550,
                 showlegend=False,
                 font=dict(size=16),
                 title_font_size=20,
@@ -364,7 +363,7 @@ def main():
 
     # --- [추가] 연령대별 SNS 이용 시간 ---
     st.markdown("---")
-    st.header("⏰ [추가] 연령대별 SNS 이용 시간")
+    st.header(" 연령대별 SNS 이용 시간")
     st.caption("하루 평균 인스타그램 이용 총시간 ([2-4] 문항)")
 
     time_col = [c for c in df.columns if "[2-4]" in c]
@@ -424,7 +423,7 @@ def main():
             fig_time.update_layout(
                 xaxis_title="<b>연령대</b>",
                 yaxis_title="<b>평균 이용 시간 (분)</b>",
-                height=450,
+                height=550,
                 showlegend=False,
                 font=dict(size=16),
                 title_font_size=20,
