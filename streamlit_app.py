@@ -1,33 +1,27 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import f_oneway
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.preprocessing import LabelEncoder
 
-
-CSV_PATH = "exp - 설문지 응답 시트1 (1).csv"
+CSV_PATH = "exp - 설문지 응답 시트1 (2).csv"
 
 
 @st.cache_data
-def load_data(path: str) -> pd.DataFrame:
+def load_data(path: str):
     df = pd.read_csv(path)
 
-    # --- 기본 컬럼 찾기 ---
+    # 기본 컬럼 찾기
     age_col = [c for c in df.columns if "[1-2]" in c][0]
     gender_col = [c for c in df.columns if "[1-1]" in c][0]
     education_col = [c for c in df.columns if "[1-3]" in c][0]
 
     # 나이 숫자 변환
     df[age_col] = pd.to_numeric(
-        df[age_col].astype(str).str.extract(r"(\d+)")[0],
-        errors="coerce",
+        df[age_col].astype(str).str.extract(r"(\d+)")[0], errors="coerce"
     )
 
-    # 연령대 그룹 함수 (3그룹)
+    # 연령대 그룹 (3그룹)
     def get_age_group(age):
         if pd.isna(age):
             return np.nan
@@ -40,21 +34,9 @@ def load_data(path: str) -> pd.DataFrame:
             return "30대 이상"
         return "기타"
 
-    # 연령대 그룹 함수 (2그룹)
-    def get_age_group_redefined(age):
-        if pd.isna(age):
-            return np.nan
-        age = int(age)
-        if age <= 29:
-            return "20대"
-        if age >= 30:
-            return "30대 이상"
-        return "기타"
+    df["Age_Group"] = df[age_col].apply(get_age_group)
 
-    df["Age_Group_3"] = df[age_col].apply(get_age_group)
-    df["Age_Group_2"] = df[age_col].apply(get_age_group_redefined)
-
-    # --- 섹터별 문항 정의 ---
+    # 유틸리티 함수
     cols = df.columns.tolist()
 
     def find_cols(prefix_list):
@@ -64,7 +46,7 @@ def load_data(path: str) -> pd.DataFrame:
             found.extend(matched)
         return found
 
-    # SNS 이용량 매핑
+    # SNS 이용률 매핑
     sns_freq_col = find_cols(["2-3"])[0]
     sns_time_col = find_cols(["2-4"])[0]
 
@@ -88,441 +70,264 @@ def load_data(path: str) -> pd.DataFrame:
     df["SNS_Freq_Numeric"] = df[sns_freq_col].map(sns_freq_mapping)
     df["SNS_Time_Numeric"] = df[sns_time_col].map(sns_time_mapping)
 
-    # 섹터 매핑 (노트북 로직과 동일)
+    # 6개 요인 정의 (논문 분석과 동일)
     sector_map = {
-        "SNS 이용량": ["SNS_Freq_Numeric", "SNS_Time_Numeric"],
-        "충동구매 성향": find_cols(
-            ["3-1", "3-2", "3-3", "3-4", "3-5", "3-28", "3-29"]
-        ),
+        "SNS 이용률": ["SNS_Freq_Numeric", "SNS_Time_Numeric"],
+        "충동구매 성향": find_cols(["3-1", "3-2", "3-3", "3-4", "3-5", "3-28", "3-29"]),
         "사회적 비교": find_cols(["3-7", "3-8", "3-9", "3-10", "3-11"]),
         "쇼핑 후회/태도": find_cols(
             ["3-13", "3-14", "3-15", "3-16", "3-25", "3-26", "3-27"]
         ),
         "광고 인식/신뢰": find_cols(
-            [f"3-{i}" for i in range(17, 25)]
-            + [f"4-{i}" for i in range(1, 13)]
+            [f"3-{i}" for i in range(17, 25)] + [f"4-{i}" for i in range(1, 13)]
         ),
         "구매 의도": find_cols([f"4-{i}" for i in range(13, 28)]),
     }
 
-    factor_names = []
+    factor_to_col = {}
     for name, columns in sector_map.items():
         if not columns:
             continue
-        df[f"{name}_Mean"] = df[columns].mean(axis=1)
-        factor_names.append(f"{name}_Mean")
+        col_name = f"{name}_Mean"
+        df[col_name] = df[columns].mean(axis=1)
+        factor_to_col[name] = col_name
 
-    return df, factor_names, age_col, gender_col, education_col
+    # 광고 개수
+    ad_cols = [c for c in df.columns if "[2-6]" in c]
+    if ad_cols:
+        ad_col = ad_cols[0]
+        df["Ad_Count_Numeric"] = pd.to_numeric(df[ad_col], errors="coerce")
+
+    return df, factor_to_col, age_col, gender_col, education_col
 
 
 def main():
-    st.set_page_config(
-        page_title="설문 분석 대시보드",
-        layout="wide",
-    )
+    st.set_page_config(page_title="논문 분석 대시보드", layout="wide")
 
-    st.title("설문 데이터 분석 대시보드")
+    st.title("📊 소셜커머스 설문 분석 대시보드")
     st.markdown(
-        "연령 / 성별 / 학력에 따라 **요인 점수 분포와 평균**, "
-        "그리고 요인 간 **상관관계**를 한눈에 살펴볼 수 있는 대시보드입니다."
+        """
+        **연령대별 6개 요인 비교 분석** (SNS 이용률 제외)
+        - 충동구매 성향 / 사회적 비교 / 쇼핑 후회·태도 / 광고 인식·신뢰 / 구매 의도
+        """
     )
 
     try:
-        df, factor_names, age_col, gender_col, education_col = load_data(CSV_PATH)
+        df, factor_to_col, age_col, gender_col, education_col = load_data(CSV_PATH)
     except FileNotFoundError:
         st.error(f"CSV 파일을 찾을 수 없습니다: `{CSV_PATH}`")
         st.stop()
 
-    factor_cols = [f for f in factor_names if f in df.columns]
-    factor_labels = {col: col.replace("_Mean", "") for col in factor_cols}
+    # SNS 이용률 제외한 5개 요인만 분석 대상
+    analysis_factors = [name for name in factor_to_col.keys() if name != "SNS 이용률"]
+    analysis_cols = [factor_to_col[name] for name in analysis_factors]
 
-    # --- 사이드바 설정 ---
-    st.sidebar.header("설정")
-    
-    # 20대 초반 랜덤 샘플링 옵션 추가
-    use_sampling = st.sidebar.checkbox("🎲 20대 초반 30명 랜덤 샘플링 적용")
+    # --- 사이드바 ---
+    st.sidebar.header("🔧 분석 설정")
 
-    group_options = {
-        "연령 (3그룹: 20대 초반/중후반/30대 이상)": "Age_Group_3",
-        "연령 (2그룹: 20대 / 30대 이상)": "Age_Group_2",
-        "성별": gender_col,
-        "학력": education_col,
-    }
+    # 20대 초반 샘플링 옵션
+    use_sampling = st.sidebar.checkbox("🎲 20대 초반 30명 랜덤 샘플링")
 
-    group_label = st.sidebar.selectbox(
-        "그룹 기준 선택",
-        options=list(group_options.keys()),
-    )
-    group_col = group_options[group_label]
+    if use_sampling:
+        target_mask = df["Age_Group"] == "20대 초반"
+        other_mask = df["Age_Group"] != "20대 초반"
+        target_df = df[target_mask]
+        other_df = df[other_mask]
 
-    factor_choice_label = st.sidebar.selectbox(
-        "요인 선택",
-        options=["전체 요인"] + list(factor_labels.values()),
-    )
-
-    # label -> 실제 컬럼명 역변환
-    label_to_col = {v: k for k, v in factor_labels.items()}
-    factor_col = None if factor_choice_label == "전체 요인" else label_to_col[
-        factor_choice_label
-    ]
+        if len(target_df) > 30:
+            sampled_target = target_df.sample(n=30, random_state=42)
+            df = pd.concat([sampled_target, other_df], ignore_index=True)
+            st.sidebar.success(f"✅ 20대 초반 {len(target_df)}명 → 30명 샘플링")
+        else:
+            st.sidebar.warning(f"⚠️ 20대 초반 인원이 {len(target_df)}명")
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("데이터 파일: ")
+    st.sidebar.markdown("**데이터 파일:**")
     st.sidebar.code(CSV_PATH, language="text")
 
-    # --- 메인 영역 ---
-    # 샘플링 적용 로직
-    if use_sampling:
-        # 20대 초반 그룹 식별 (Age_Group_3 기준)
-        group_target = "20대 초반"
-        if "Age_Group_3" in df.columns:
-            target_mask = df["Age_Group_3"] == group_target
-            other_mask = df["Age_Group_3"] != group_target
-            
-            target_df = df[target_mask]
-            other_df = df[other_mask]
-            
-            if len(target_df) > 30:
-                # 30명 랜덤 샘플링 (고정 시드 사용 X -> 매번 다르게, 필요시 random_state=42 추가 가능)
-                sampled_target = target_df.sample(n=30, random_state=42) 
-                df = pd.concat([sampled_target, other_df], ignore_index=True)
-                st.sidebar.success(f"✅ 20대 초반 {len(target_df)}명 → 30명 샘플링 완료")
-            else:
-                st.sidebar.warning(f"⚠️ 20대 초반 인원이 {len(target_df)}명이라 샘플링하지 않음")
-
-    if group_col:
-        group_df = df.dropna(subset=[group_col])
-    else:
-        group_df = df.copy()
-
-    # 그룹 순서 정의 (정렬을 위해)
-    category_orders = {}
-    if "Age_Group_3" in group_col:
-        category_orders[group_col] = ["20대 초반", "20대 중후반", "30대 이상"]
-    elif "Age_Group_2" in group_col:
-        category_orders[group_col] = ["20대", "30대 이상"]
-
-    st.subheader("표본 개요")
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    # --- 메인: 표본 개요 ---
+    st.subheader("📌 표본 개요")
+    col1, col2, col3 = st.columns(3)
+    with col1:
         st.metric("전체 표본 수", len(df))
-    with c2:
-        st.metric("유효 표본 수 (선택 그룹 기준)", len(group_df))
-    with c3:
-        st.metric("요인 수", len(factor_cols))
+    with col2:
+        st.metric("분석 요인 수 (SNS 이용률 제외)", len(analysis_factors))
+    with col3:
+        valid_age_count = df["Age_Group"].notna().sum()
+        st.metric("유효 연령대 표본", valid_age_count)
 
-    if group_col:
-        st.markdown(f"#### 선택한 그룹: **{group_label}**")
-        st.dataframe(
-            group_df[group_col].value_counts().to_frame("표본 수"),
-        )
+    st.markdown("##### 연령대별 표본 분포")
+    age_counts = df["Age_Group"].value_counts().sort_index()
+    st.dataframe(age_counts.to_frame("표본 수"), use_container_width=False)
 
-    # --- 요인 시각화 ---
+    # --- [1] 연령대별 6개 요인 평균 ---
     st.markdown("---")
+    st.header("📊 [1] 연령대별 요인 평균 (SNS 이용률 제외)")
 
-    if factor_col is None:
-        st.subheader("그룹별 요인 분포 비교")
+    group_means = df.groupby("Age_Group")[analysis_cols].mean().round(2)
+    group_means_display = group_means.copy()
+    group_means_display.columns = [c.replace("_Mean", "") for c in group_means_display.columns]
 
-        plot_df = group_df[[group_col] + factor_cols].copy()
-        long_df = plot_df.melt(
-            id_vars=group_col,
-            value_vars=factor_cols,
-            var_name="요인",
-            value_name="점수",
-        )
-        long_df["요인"] = long_df["요인"].map(factor_labels)
+    st.dataframe(group_means_display, use_container_width=True)
 
-        # 통계 요약 테이블
-        st.markdown("#### 📊 그룹별 요약 통계")
-        summary_stats = []
-        for factor in factor_cols:
-            factor_name = factor_labels[factor]
-            for group_name in plot_df[group_col].dropna().unique():
-                group_data = plot_df[plot_df[group_col] == group_name][factor].dropna()
-                summary_stats.append({
-                    "요인": factor_name,
-                    "그룹": group_name,
-                    "평균": round(group_data.mean(), 2),
-                    "표준편차": round(group_data.std(), 2),
-                    "중앙값": round(group_data.median(), 2),
-                    "최소값": round(group_data.min(), 2),
-                    "최대값": round(group_data.max(), 2),
-                    "표본수": len(group_data),
-                })
-        
-        summary_df = pd.DataFrame(summary_stats)
-        st.dataframe(summary_df, use_container_width=True, height=250)
-
-        # 탭으로 여러 시각화 제공
-        tab1, tab2, tab3 = st.tabs(["📦 박스플롯", "🎻 바이올린 플롯", "📊 평균 비교"])
-        
-        with tab1:
-            st.markdown("##### 그룹별 요인 점수 분포 (박스플롯)")
-            fig_box = px.box(
-                long_df,
-                x="요인",
-                y="점수",
-                color=group_col,
-                title=f"{group_label}별 요인 점수 분포",
-                points="outliers",
-                category_orders=category_orders,
-            )
-            fig_box.update_layout(
-                xaxis_title="요인",
-                yaxis_title="점수 (1~5점)",
-                height=500,
-                showlegend=True,
-            )
-            st.plotly_chart(fig_box, use_container_width=True)
-        
-        with tab2:
-            st.markdown("##### 그룹별 요인 점수 분포 (바이올린 플롯)")
-            fig_violin = px.violin(
-                long_df,
-                x="요인",
-                y="점수",
-                color=group_col,
-                box=True,
-                points="all",
-                title=f"{group_label}별 요인 점수 분포 (바이올린)",
-                category_orders=category_orders,
-            )
-            fig_violin.update_layout(
-                xaxis_title="요인",
-                yaxis_title="점수 (1~5점)",
-                height=500,
-                showlegend=True,
-            )
-            st.plotly_chart(fig_violin, use_container_width=True)
-        
-        with tab3:
-            st.markdown("##### 그룹별 요인 평균 비교 (막대 그래프)")
-            fig_bar = px.bar(
-                long_df,
-                x="요인",
-                y="점수",
-                color=group_col,
-                barmode="group",
-                title=f"{group_label}별 요인 평균 비교",
-                category_orders=category_orders,
-            )
-            fig_bar.update_layout(
-                xaxis_title="요인",
-                yaxis_title="평균 점수 (1~5점)",
-                height=500,
-                showlegend=True,
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-        
-        # ANOVA 결과 요약
-        st.markdown("#### 📈 통계 검정 결과 (ANOVA)")
-        anova_results = []
-        for factor in factor_cols:
-            factor_name = factor_labels[factor]
-            group_values = [
-                plot_df[plot_df[group_col] == g][factor].dropna().values
-                for g in plot_df[group_col].dropna().unique()
-            ]
-            valid_groups = [g for g in group_values if len(g) >= 2]
-            
-            if len(valid_groups) >= 2:
-                f_val, p_val = f_oneway(*valid_groups)
-                significance = "✅ 유의" if p_val < 0.05 else "❌ 비유의"
-                anova_results.append({
-                    "요인": factor_name,
-                    "F 통계량": round(f_val, 4),
-                    "P-value": round(p_val, 4),
-                    "유의성 (α=0.05)": significance,
-                })
-        
-        if anova_results:
-            anova_df = pd.DataFrame(anova_results)
-            st.dataframe(anova_df, use_container_width=True)
-    else:
-        st.subheader(f"단일 요인 분포: **{factor_choice_label}**")
-
-        plot_df = group_df[[group_col, factor_col]].dropna()
-
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            fig_box = px.box(
-                plot_df,
-                x=group_col,
-                y=factor_col,
-                points="all",
-                title=f"{group_label}별 '{factor_choice_label}' 분포 (Boxplot)",
-                category_orders=category_orders,
-            )
-            fig_box.update_layout(
-                xaxis_title=group_label,
-                yaxis_title="점수 (1~5점)",
-            )
-            st.plotly_chart(fig_box, use_container_width=True)
-
-        with c2:
-            mean_by_group = (
-                plot_df.groupby(group_col)[factor_col]
-                .agg(["mean", "std", "count"])
-                .round(2)
-            )
-            st.write("**그룹별 요약 통계**")
-            st.dataframe(mean_by_group)
-
-        # ANOVA (선택한 요인에 대해 그룹 차이 검증)
-        st.markdown("##### ANOVA (선택 요인 기준 그룹 간 차이 검증)")
-        group_values = [
-            g[factor_col].dropna().values
-            for _, g in plot_df.groupby(group_col)
-        ]
-        valid_groups = [g for g in group_values if len(g) >= 2]
-
-        if len(valid_groups) >= 2:
-            f_val, p_val = f_oneway(*valid_groups)
-            st.write(f"- F 통계량: `{f_val:.4f}`")
-            st.write(f"- P-value: `{p_val:.4f}`")
-            if p_val < 0.05:
-                st.success("통계적으로 유의미한 차이 있음 (P < 0.05)")
-            else:
-                st.info("통계적으로 유의미한 차이 없음 (P ≥ 0.05)")
-        else:
-            st.warning("ANOVA를 수행하기에 그룹별 표본 수가 부족합니다.")
-
-    # --- 상관관계 히트맵 ---
-    st.markdown("---")
-    st.subheader("요인 간 상관관계 (전체 표본 기준)")
-
-    corr = df[factor_cols].corr()
-    fig_corr = px.imshow(
-        corr,
-        text_auto=".2f",
-        zmin=-1,
-        zmax=1,
-        color_continuous_scale="RdBu_r",
-        title="요인 간 상관관계 히트맵",
+    # 막대 그래프로 시각화
+    long_df = group_means_display.reset_index().melt(
+        id_vars="Age_Group", var_name="요인", value_name="평균 점수"
     )
-    st.plotly_chart(fig_corr, use_container_width=True)
 
-    # --- 머신러닝 예측 섹션 ---
+    fig_bar = px.bar(
+        long_df,
+        x="요인",
+        y="평균 점수",
+        color="Age_Group",
+        barmode="group",
+        title="연령대별 요인 평균 비교",
+        category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig_bar.update_layout(
+        xaxis_title="요인",
+        yaxis_title="평균 점수 (1~5점)",
+        height=450,
+        legend_title="연령대",
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- [2] 각 연령대별 상위 3개 요인 + 전체 순위 ---
     st.markdown("---")
-    st.header("🤖 AI 구매 의도 예측 시뮬레이션")
-    st.markdown("머신러닝(Random Forest)을 사용하여 사용자 특성에 따른 **구매 의도**를 예측합니다.")
+    st.header("🏆 [2] 각 연령대별 상위 3개 요인 (SNS 이용률 제외)")
 
-    # ML 데이터 준비
-    ml_df = df.copy()
-    
-    # 범주형 변수 인코딩
-    le_gender = LabelEncoder()
-    # 결측치 처리 (최빈값 또는 '기타')
-    ml_df[gender_col] = ml_df[gender_col].fillna("기타")
-    ml_df["Gender_Code"] = le_gender.fit_transform(ml_df[gender_col].astype(str))
-    
-    # 입력 변수(X)와 타겟 변수(y) 설정
-    # 나이, 성별, SNS 이용량, 충동구매 성향, 사회적 비교, 쇼핑 후회/태도, 광고 인식/신뢰 -> 구매 의도 예측
-    feature_cols = [
-        "SNS_Freq_Numeric", "SNS_Time_Numeric", 
-        "충동구매 성향_Mean", "사회적 비교_Mean", 
-        "쇼핑 후회/태도_Mean", "광고 인식/신뢰_Mean"
-    ]
-    # 나이 컬럼이 숫자형인지 확인하고 추가
-    if age_col in ml_df.columns:
-        ml_df[age_col] = ml_df[age_col].fillna(ml_df[age_col].median()) # 결측치 중앙값 대체
-        feature_cols.insert(0, age_col)
-    
-    feature_cols.append("Gender_Code")
-    
-    target_col = "구매 의도_Mean"
-    
-    # 결측치 제거
-    ml_data = ml_df[feature_cols + [target_col]].dropna()
-    
-    if len(ml_data) > 10:
-        X = ml_data[feature_cols]
-        y = ml_data[target_col]
-        
-        # 모델 학습
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
-        
-        # 성능 평가
-        y_pred = model.predict(X_test)
-        r2 = r2_score(y_test, y_pred)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.success(f"**모델 예측 정확도 (R² Score): {r2:.2f}**")
-            st.caption("1.0에 가까울수록 예측이 정확합니다.")
-            
-            # 변수 중요도 시각화
-            importances = model.feature_importances_
-            feature_names_display = [
-                c.replace("_Mean", "").replace("_Numeric", "") 
-                for c in feature_cols
-            ]
-            # 성별, 나이 이름 다듬기
-            feature_names_display = [
-                "성별" if "Gender" in f else 
-                "나이" if "연령" in f or "1-2" in f else f 
-                for f in feature_names_display
-            ]
-            
-            imp_df = pd.DataFrame({
-                "Feature": feature_names_display,
-                "Importance": importances
-            }).sort_values("Importance", ascending=True)
-            
-            fig_imp = px.bar(
-                imp_df, 
-                x="Importance", 
-                y="Feature", 
-                orientation='h',
-                title="구매 의도에 영향을 미치는 요인 (중요도)",
-                color="Importance",
-                color_continuous_scale="Viridis"
+    for group in ["20대 초반", "20대 중후반", "30대 이상"]:
+        if group not in group_means.index:
+            continue
+
+        row = group_means.loc[group]
+        renamed = row.rename(
+            index={factor_to_col[name]: name for name in analysis_factors}
+        )
+        sorted_row = renamed.sort_values(ascending=False)
+        top3 = sorted_row.head(3)
+
+        st.subheader(f"■ {group}")
+        col1, col2 = st.columns([1, 2])
+
+        with col1:
+            st.markdown("**상위 3개 요인:**")
+            for i, (fname, val) in enumerate(top3.items(), start=1):
+                st.markdown(f"**{i}.** {fname}: `{val:.2f}`")
+
+        with col2:
+            st.markdown("**전체 요인 순위 (내림차순):**")
+            rank_df = pd.DataFrame(
+                {
+                    "순위": range(1, len(sorted_row) + 1),
+                    "요인": sorted_row.index,
+                    "평균 점수": sorted_row.values,
+                }
             )
-            st.plotly_chart(fig_imp, use_container_width=True)
-            
-        with c2:
-            st.subheader("🎛️ 내 구매 의도 예측해보기")
-            st.markdown("아래 슬라이더를 조절하여 가상의 사용자 프로필을 만들어보세요.")
-            
-            # 사용자 입력 받기
-            input_data = {}
-            
-            if age_col in feature_cols:
-                input_data[age_col] = st.slider("나이", 10, 60, 24)
-            
-            gender_opt = st.radio("성별", le_gender.classes_, horizontal=True)
-            input_data["Gender_Code"] = le_gender.transform([gender_opt])[0]
-            
-            input_data["SNS_Freq_Numeric"] = st.slider("SNS 접속 빈도 (1:적음 ~ 5:많음)", 1.0, 5.0, 3.0, 0.5)
-            input_data["SNS_Time_Numeric"] = st.slider("SNS 이용 시간 (시간)", 0.0, 6.0, 2.0, 0.5)
-            
-            input_data["충동구매 성향_Mean"] = st.slider("충동구매 성향 점수", 1.0, 5.0, 3.0, 0.1)
-            input_data["사회적 비교_Mean"] = st.slider("사회적 비교 점수", 1.0, 5.0, 3.0, 0.1)
-            input_data["쇼핑 후회/태도_Mean"] = st.slider("쇼핑 후회/태도 점수", 1.0, 5.0, 3.0, 0.1)
-            input_data["광고 인식/신뢰_Mean"] = st.slider("광고 인식/신뢰 점수", 1.0, 5.0, 3.0, 0.1)
-            
-            # 예측 수행
-            input_df = pd.DataFrame([input_data], columns=feature_cols)
-            prediction = model.predict(input_df)[0]
-            
-            st.divider()
-            st.markdown(f"### 🔮 예측된 구매 의도 점수: **{prediction:.2f} / 5.0**")
-            
-            if prediction >= 4.0:
-                st.balloons()
-                st.success("구매 가능성이 매우 높습니다! 🚀")
-            elif prediction >= 3.0:
-                st.info("구매를 고려할 가능성이 있습니다. 🤔")
-            else:
-                st.warning("구매 가능성이 낮습니다. 📉")
-                
+            st.dataframe(rank_df, hide_index=True, use_container_width=True)
+
+    # --- [3] 연령대별 광고 개수 평균 ---
+    st.markdown("---")
+    st.header("📺 [3] 연령대별 광고 개수 평균 ([2-6] 문항)")
+
+    if "Ad_Count_Numeric" in df.columns:
+        ad_means = df.groupby("Age_Group")["Ad_Count_Numeric"].mean().round(2)
+        ad_means_df = ad_means.to_frame("평균 광고 개수")
+        st.dataframe(ad_means_df, use_container_width=False)
+
+        # 막대 그래프
+        fig_ad = px.bar(
+            ad_means.reset_index(),
+            x="Age_Group",
+            y="Ad_Count_Numeric",
+            title="연령대별 평균 광고 개수",
+            labels={"Age_Group": "연령대", "Ad_Count_Numeric": "평균 광고 개수"},
+            color="Age_Group",
+            category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
+            color_discrete_sequence=px.colors.qualitative.Pastel,
+        )
+        fig_ad.update_layout(
+            xaxis_title="연령대",
+            yaxis_title="평균 광고 개수 (개)",
+            height=400,
+            showlegend=False,
+        )
+        st.plotly_chart(fig_ad, use_container_width=True)
     else:
-        st.warning("머신러닝을 수행하기에 데이터가 충분하지 않습니다.")
+        st.warning("⚠️ 광고 개수 데이터([2-6])를 찾을 수 없습니다.")
+
+    # --- [4] 집단별 상관계수 ---
+    st.markdown("---")
+    st.header("🔗 [4] 집단별 요인 간 상관관계")
+
+    corr_group_options = {
+        "전체 표본": None,
+        "20대 초반": "20대 초반",
+        "20대 중후반": "20대 중후반",
+        "30대 이상": "30대 이상",
+    }
+
+    corr_choice = st.selectbox(
+        "상관계수를 계산할 집단 선택", options=list(corr_group_options.keys()), index=0
+    )
+    corr_filter = corr_group_options[corr_choice]
+
+    if corr_filter is None:
+        corr_df = df
+        subtitle = "전체 표본"
+    else:
+        corr_df = df[df["Age_Group"] == corr_filter]
+        subtitle = corr_filter
+
+    st.caption(f"선택된 표본 수: **{len(corr_df)}명**")
+
+    if len(corr_df) < 5:
+        st.warning("상관계수를 계산하기에 표본 수가 너무 적습니다 (5명 미만).")
+    else:
+        corr = corr_df[analysis_cols].corr()
+        # 요인명 간소화
+        corr.index = [c.replace("_Mean", "") for c in corr.index]
+        corr.columns = [c.replace("_Mean", "") for c in corr.columns]
+
+        fig_corr = px.imshow(
+            corr,
+            text_auto=".2f",
+            zmin=-1,
+            zmax=1,
+            color_continuous_scale="RdBu_r",
+            title=f"요인 간 상관계수 히트맵 ({subtitle})",
+        )
+        fig_corr.update_layout(height=500)
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+    # --- [추가] 박스플롯 비교 ---
+    st.markdown("---")
+    st.header("📦 [추가] 연령대별 요인 분포 (박스플롯)")
+
+    plot_df = df[["Age_Group"] + analysis_cols].dropna()
+    long_plot_df = plot_df.melt(
+        id_vars="Age_Group", value_vars=analysis_cols, var_name="요인", value_name="점수"
+    )
+    long_plot_df["요인"] = long_plot_df["요인"].str.replace("_Mean", "")
+
+    fig_box = px.box(
+        long_plot_df,
+        x="요인",
+        y="점수",
+        color="Age_Group",
+        title="연령대별 요인 점수 분포 (박스플롯)",
+        category_orders={"Age_Group": ["20대 초반", "20대 중후반", "30대 이상"]},
+        points="outliers",
+    )
+    fig_box.update_layout(
+        xaxis_title="요인",
+        yaxis_title="점수 (1~5점)",
+        height=500,
+        legend_title="연령대",
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
 
 
 if __name__ == "__main__":
     main()
-
-
