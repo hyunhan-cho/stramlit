@@ -134,6 +134,9 @@ def main():
 
     # --- 사이드바 설정 ---
     st.sidebar.header("설정")
+    
+    # 20대 초반 랜덤 샘플링 옵션 추가
+    use_sampling = st.sidebar.checkbox("🎲 20대 초반 30명 랜덤 샘플링 적용")
 
     group_options = {
         "연령 (3그룹: 20대 초반/중후반/30대 이상)": "Age_Group_3",
@@ -164,6 +167,25 @@ def main():
     st.sidebar.code(CSV_PATH, language="text")
 
     # --- 메인 영역 ---
+    # 샘플링 적용 로직
+    if use_sampling:
+        # 20대 초반 그룹 식별 (Age_Group_3 기준)
+        group_target = "20대 초반"
+        if "Age_Group_3" in df.columns:
+            target_mask = df["Age_Group_3"] == group_target
+            other_mask = df["Age_Group_3"] != group_target
+            
+            target_df = df[target_mask]
+            other_df = df[other_mask]
+            
+            if len(target_df) > 30:
+                # 30명 랜덤 샘플링 (고정 시드 사용 X -> 매번 다르게, 필요시 random_state=42 추가 가능)
+                sampled_target = target_df.sample(n=30, random_state=42) 
+                df = pd.concat([sampled_target, other_df], ignore_index=True)
+                st.sidebar.success(f"✅ 20대 초반 {len(target_df)}명 → 30명 샘플링 완료")
+            else:
+                st.sidebar.warning(f"⚠️ 20대 초반 인원이 {len(target_df)}명이라 샘플링하지 않음")
+
     if group_col:
         group_df = df.dropna(subset=[group_col])
     else:
