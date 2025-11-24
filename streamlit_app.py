@@ -66,7 +66,7 @@ def process_dataframe(df):
         "플랫폼 편의성": find_cols(["3-18", "3-19", "3-20", "3-21"]),
         "서비스 신뢰/후회": find_cols(["3-22", "3-23", "3-24", "3-25", "3-26", "3-27"]),
         "예산/자기통제": find_cols(["3-28", "3-29", "3-30", "3-31", "3-32"]),
-        "메타광고 종합 반응": find_cols([f"4-{i}" for i in range(1, 28)]),
+        "메타광고 인식": find_cols([f"4-{i}" for i in range(1, 28)]),
     }
 
     factor_to_col = {}
@@ -111,7 +111,7 @@ def main():
     st.markdown(
         """
         ### 연령대별 7개 요인 비교 분석
-        - 충동구매 성향 / 사회적 비교 / 가격 민감도 / 플랫폼 편의성 / 서비스 신뢰·후회 / 예산·자기통제 / **메타광고 종합 반응**
+        - 충동구매 성향 / 사회적 비교 / 가격 민감도 / 플랫폼 편의성 / 서비스 신뢰·후회 / 예산·자기통제 / **메타광고 인식**
         """
     )
 
@@ -130,7 +130,7 @@ def main():
         if uploaded_file is not None:
             try:
                 df, factor_to_col, age_col, gender_col, education_col = load_data_from_upload(uploaded_file)
-                st.success("✅ 파일 업로드 성공!")
+                st.success("파일 업로드 성공!")
             except Exception as upload_error:
                 st.error(f"파일 처리 중 오류: {upload_error}")
                 st.stop()
@@ -159,9 +159,9 @@ def main():
         if len(target_df) > 30:
             sampled_target = target_df.sample(n=30, random_state=42)
             df = pd.concat([sampled_target, other_df], ignore_index=True)
-            st.sidebar.success(f"✅ 20대 초반 {len(target_df)}명 → 30명 샘플링")
+            st.sidebar.success(f"20대 초반 {len(target_df)}명 → 30명 샘플링")
         else:
-            st.sidebar.warning(f"⚠️ 20대 초반 인원이 {len(target_df)}명")
+            st.sidebar.warning(f"20대 초반 인원이 {len(target_df)}명")
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("**데이터 파일:**")
