@@ -34,6 +34,9 @@ def process_dataframe(df):
         return "기타"
 
     df["Age_Group"] = df[age_col].apply(get_age_group)
+    
+    # 연령대 미상(NaN) 데이터 제거
+    df = df.dropna(subset=["Age_Group"]).reset_index(drop=True)
 
     # 유틸리티 함수
     cols = df.columns.tolist()
@@ -105,9 +108,9 @@ def load_data_from_upload(uploaded_file):
 
 
 def main():
-    st.set_page_config(page_title="논문 분석 대시보드", layout="wide")
+    st.set_page_config(page_title="알미사 분석 대시보드", layout="wide")
 
-    st.title("📊 소셜커머스 설문 분석 대시보드")
+    st.title("📊 메타광고 설문 분석 대시보드")
     st.markdown(
         """
         ### 연령대별 7개 요인 비교 분석
