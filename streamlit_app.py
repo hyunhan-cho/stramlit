@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import os
 
-CSV_PATH = "exp - 설문지 응답 시트1 (4).csv"
+CSV_PATH = "exp - 설문지 응답 시트1 (2).csv"
 
 
 def process_dataframe(df):
